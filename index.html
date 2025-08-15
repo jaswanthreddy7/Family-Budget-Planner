@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Expense Tracker — GitHub Pages</title>
+  <meta name="theme-color" content="#0ea5e9" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 256 256'%3E%3Ccircle cx='128' cy='128' r='120' fill='%230ea5e9'/%3E%3Cpath d='M92 92h72a10 10 0 0 1 10 10v76a10 10 0 0 1-10 10H92a10 10 0 0 1-10-10v-76a10 10 0 0 1 10-10zm10 24v48h52v-48H102z' fill='white'/%3E%3C/svg%3E" />
+  <!-- Tailwind (CDN) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            sky: { DEFAULT: '#0ea5e9' }
+          },
+          boxShadow: {
+            pretty: '0 10px 30px -12px rgba(2,132,199,.35)'
+          }
+        }
+      },
+      darkMode: 'class'
+    }
+  </script>
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  <!-- SheetJS (xlsx) -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.20.3/dist/xlsx.full.min.js"></script>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="bg-slate-50 text-slate-800 dark:bg-slate-900 dark:text-slate-100 transition-colors">
+  <header class="sticky top-0 z-40 backdrop-blur bg-white/70 dark:bg-slate-900/70 border-b border-slate-200/60 dark:border-slate-700/60">
+    <div class="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
+      <h1 class="text-xl sm:text-2xl font-extrabold tracking-tight">💸 Expense Tracker</h1>
+      <div class="flex items-center gap-2">
+        <button id="importBtn" class="btn-secondary">Import</button>
+        <button id="exportBtn" class="btn-primary">Export to Excel</button>
+        <button id="themeToggle" class="icon-btn" title="Toggle dark mode" aria-label="Toggle dark mode">🌙</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-6xl mx-auto px-4 py-6 space-y-8">
+    <!-- Hero / KPIs -->
+    <section class="grid md:grid-cols-3 gap-4">
+      <div class="kpi-card">
+        <div class="kpi-label">This Month Spend</div>
+        <div id="kpi-month" class="kpi-value">—</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">All-Time Spend</div>
+        <div id="kpi-total" class="kpi-value">—</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">All-Time Income</div>
+        <div id="kpi-income" class="kpi-value">—</div>
+      </div>
+    </section>
+
+    <!-- Add Transaction -->
+    <section class="card">
+      <div class="flex items-center justify-between">
+        <h2 class="section-title">Add Transaction</h2>
+        <div class="text-xs text-slate-500 dark:text-slate-400">Data auto-saves in your browser</div>
+      </div>
+      <form id="txForm" class="grid md:grid-cols-6 gap-3 mt-4">
+        <input type="date" id="date" required class="input md:col-span-1" />
+        <input type="text" id="desc" placeholder="Description" required class="input md:col-span-2" />
+        <input type="text" id="category" placeholder="Category (e.g. Food)" list="categoryList" class="input md:col-span-1" />
+        <datalist id="categoryList"></datalist>
+        <select id="type" class="input md:col-span-1">
+          <option value="expense">Expense</option>
+          <option value="income">Income</option>
+        </select>
+        <input type="number" id="amount" step="0.01" min="0" placeholder="Amount" required class="input md:col-span-1" />
+        <button class="btn-primary md:col-span-6" type="submit">Add</button>
+      </form>
+    </section>
+
+    <!-- Filters -->
+    <section class="card">
+      <h2 class="section-title">Filters</h2>
+      <div class="grid md:grid-cols-6 gap-3 mt-4">
+        <input type="month" id="filterMonth" class="input md:col-span-2" />
+        <input type="text" id="filterQuery" placeholder="Search description" class="input md:col-span-2" />
+        <select id="filterType" class="input">
+          <option value="all">All</option>
+          <option value="expense">Expense</option>
+          <option value="income">Income</option>
+        </select>
+        <button id="clearFilters" class="btn-secondary">Clear</button>
+      </div>
+    </section>
+
+    <!-- Table -->
+    <section class="card overflow-x-auto">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="section-title">Transactions</h2>
+        <div class="text-sm opacity-80"><span id="txCount">0</span> item(s)</div>
+      </div>
+      <table class="min-w-full text-sm">
+        <thead class="bg-slate-100 dark:bg-slate-800">
+          <tr>
+            <th class="th">Date</th>
+            <th class="th">Description</th>
+            <th class="th">Category</th>
+            <th class="th text-right">Amount</th>
+            <th class="th">Type</th>
+            <th class="th">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="txBody"></tbody>
+      </table>
+    </section>
+
+    <!-- Charts -->
+    <section class="grid lg:grid-cols-3 gap-4">
+      <div class="card"><h2 class="section-title">By Category</h2><canvas id="catChart" height="250"></canvas></div>
+      <div class="card"><h2 class="section-title">Monthly Totals</h2><canvas id="monthChart" height="250"></canvas></div>
+      <div class="card"><h2 class="section-title">Net Flow (Cumulative)</h2><canvas id="netChart" height="250"></canvas></div>
+    </section>
+
+    <footer class="py-8 text-center text-xs text-slate-500 dark:text-slate-400">
+      Built for GitHub Pages • Data stays in your browser • Export/Import Excel supported
+    </footer>
+  </main>
+
+  <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" class="hidden" />
+
+  <script src="app.js"></script>
+</body>
+</html>
