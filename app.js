@@ -1,13 +1,18 @@
+```javascript
+// app.js — Expense Tracker (GitHub Pages ready)
+// Full file with robust Excel export and Enter-to-submit on Amount
+
 // ====== Constants & State ======
 const LS_KEY = 'xpense.v1.transactions';
 const LS_THEME = 'xpense.v1.theme';
 let transactions = loadTransactions();
 let charts = { cat: null, month: null, net: null };
 
-// ====== Helpers ======
+// ====== DOM Helpers ======
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
+// ====== Formatting / Small Utils ======
 function formatCurrency(n) {
   const sign = n < 0 ? '-' : '';
   const val = Math.abs(n);
@@ -25,7 +30,11 @@ function monthKey(isoDate) {
 function uid() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
+function escapeHTML(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
+}
 
+// ====== Persistence ======
 function loadTransactions() {
   try {
     return JSON.parse(localStorage.getItem(LS_KEY) || '[]');
@@ -43,88 +52,132 @@ function saveTransactions() {
   if (saved === 'dark' || (!saved && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
     document.documentElement.classList.add('dark');
   }
-  $('#themeToggle').addEventListener('click', () => {
-    document.documentElement.classList.toggle('dark');
-    localStorage.setItem(LS_THEME, document.documentElement.classList.contains('dark') ? 'dark' : 'light');
-  });
+  const toggle = $('#themeToggle');
+  if (toggle) {
+    toggle.addEventListener('click', () => {
+      document.documentElement.classList.toggle('dark');
+      localStorage.setItem(LS_THEME, document.documentElement.classList.contains('dark') ? 'dark' : 'light');
+    });
+  }
 })();
 
 // ====== Initial UI State ======
 (function initFormDefaults() {
-  $('#date').value = todayISO();
-  $('#type').value = 'expense';
+  const dateEl = $('#date');
+  const typeEl = $('#type');
+  if (dateEl) dateEl.value = todayISO();
+  if (typeEl) typeEl.value = 'expense';
 })();
 
 renderAll();
 
 // ====== Form Handlers ======
-$('#txForm').addEventListener('submit', (e) => {
-  e.preventDefault();
-  const date = $('#date').value;
-  const desc = $('#desc').value.trim();
-  const category = $('#category').value.trim() || 'Uncategorized';
-  const type = $('#type').value;
-  const amount = parseFloat($('#amount').value);
+const form = $('#txForm');
+if (form) {
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const date = $('#date').value;
+    const desc = $('#desc').value.trim();
+    const category = $('#category').value.trim() || 'Uncategorized';
+    const type = $('#type').value;
+    const amount = parseFloat($('#amount').value);
 
-  if (!date || !desc || isNaN(amount) || amount < 0) return;
+    if (!date || !desc || isNaN(amount) || amount < 0) return;
 
-  const tx = { id: uid(), date, desc, category, type, amount };
-  transactions.push(tx);
-  saveTransactions();
-  e.target.reset();
-  $('#date').value = todayISO();
-  renderAll();
-});
+    const tx = { id: uid(), date, desc, category, type, amount };
+    transactions.push(tx);
+    saveTransactions();
+    e.target.reset();
+    $('#date').value = todayISO();
+    renderAll();
+  });
+
+  // Submit when pressing Enter inside the Amount box
+  const amt = $('#amount');
+  if (amt) {
+    amt.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        form.requestSubmit(); // more reliable than form.submit()
+      }
+    });
+  }
+}
 
 // ====== Filters ======
-$('#filterMonth').addEventListener('input', renderTable);
-$('#filterQuery').addEventListener('input', renderTable);
-$('#filterType').addEventListener('change', renderTable);
-$('#clearFilters').addEventListener('click', () => {
-  $('#filterMonth').value = '';
-  $('#filterQuery').value = '';
-  $('#filterType').value = 'all';
-  renderTable();
-});
+const filterMonth = $('#filterMonth');
+const filterQuery = $('#filterQuery');
+const filterType  = $('#filterType');
+const clearFilters = $('#clearFilters');
+
+if (filterMonth) filterMonth.addEventListener('input', renderTable);
+if (filterQuery) filterQuery.addEventListener('input', renderTable);
+if (filterType)  filterType.addEventListener('change', renderTable);
+if (clearFilters) {
+  clearFilters.addEventListener('click', () => {
+    $('#filterMonth').value = '';
+    $('#filterQuery').value = '';
+    $('#filterType').value = 'all';
+    renderTable();
+  });
+}
 
 // ====== Import / Export ======
-$('#exportBtn').addEventListener('click', exportExcel);
-$('#importBtn').addEventListener('click', () => $('#fileInput').click());
-$('#fileInput').addEventListener('change', async (e) => {
+const exportBtn = $('#exportBtn');
+const importBtn = $('#importBtn');
+const fileInput = $('#fileInput');
+
+if (exportBtn) exportBtn.addEventListener('click', exportExcel);
+if (importBtn && fileInput) {
+  importBtn.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', onImportFile);
+}
+
+async function onImportFile(e) {
   const file = e.target.files[0];
   if (!file) return;
-  const data = await file.arrayBuffer();
-  let rows = [];
-  if (file.name.endsWith('.csv')) {
-    const text = new TextDecoder().decode(data);
-    rows = parseCSV(text);
-  } else {
-    const wb = XLSX.read(data, { type: 'array' });
-    const ws = wb.Sheets[wb.SheetNames[0]];
-    rows = XLSX.utils.sheet_to_json(ws);
-  }
-  // Expected headers: date, desc, category, type, amount
-  const imported = [];
-  for (const r of rows) {
-    const date = asISO(r.date || r.Date);
-    const desc = String(r.desc || r.Description || '').trim();
-    const category = String(r.category || r.Category || 'Uncategorized').trim();
-    const type = (String(r.type || r.Type || 'expense').toLowerCase().includes('inc')) ? 'income' : 'expense';
-    const amount = parseFloat(r.amount ?? r.Amount);
-    if (date && desc && !Number.isNaN(amount)) {
-      imported.push({ id: uid(), date, desc, category, type, amount });
+  try {
+    const data = await file.arrayBuffer();
+    let rows = [];
+    if (file.name.toLowerCase().endsWith('.csv')) {
+      const text = new TextDecoder().decode(data);
+      rows = parseCSV(text);
+    } else {
+      if (typeof XLSX === 'undefined') throw new Error('XLSX not loaded');
+      const wb = XLSX.read(data, { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      rows = XLSX.utils.sheet_to_json(ws);
     }
+
+    // Expected headers: date, desc, category, type, amount
+    const imported = [];
+    for (const r of rows) {
+      const date = asISO(r.date ?? r.Date);
+      const desc = String(r.desc ?? r.Description ?? '').trim();
+      const category = String(r.category ?? r.Category ?? 'Uncategorized').trim();
+      const typeRaw = String(r.type ?? r.Type ?? 'expense').toLowerCase();
+      const type = typeRaw.includes('inc') ? 'income' : 'expense';
+      const amount = parseFloat(r.amount ?? r.Amount);
+      if (date && desc && !Number.isNaN(amount)) {
+        imported.push({ id: uid(), date, desc, category, type, amount: Math.abs(amount) });
+      }
+    }
+
+    if (imported.length) {
+      transactions = dedupe([...transactions, ...imported]);
+      saveTransactions();
+      renderAll();
+      alert(`Imported ${imported.length} row(s).`);
+    } else {
+      alert('No valid rows found to import.');
+    }
+  } catch (err) {
+    console.error('Import error:', err);
+    alert('Import failed. Please ensure the file is a valid Excel or CSV with columns like date, desc, category, type, amount.');
+  } finally {
+    e.target.value = '';
   }
-  if (imported.length) {
-    transactions = dedupe([...transactions, ...imported]);
-    saveTransactions();
-    renderAll();
-    alert(`Imported ${imported.length} row(s).`);
-  } else {
-    alert('No valid rows found to import.');
-  }
-  e.target.value = '';
-});
+}
 
 // ====== Rendering ======
 function renderAll() {
@@ -135,21 +188,25 @@ function renderAll() {
 }
 
 function getFiltered() {
-  const m = $('#filterMonth').value; // YYYY-MM
-  const q = $('#filterQuery').value.trim().toLowerCase();
-  const t = $('#filterType').value;
-  return transactions.filter(tx => {
-    const byMonth = m ? tx.date.startsWith(m) : true;
-    const byQuery = q ? (tx.desc.toLowerCase().includes(q) || tx.category.toLowerCase().includes(q)) : true;
-    const byType = t === 'all' ? true : tx.type === t;
-    return byMonth && byQuery && byType;
-  }).sort((a, b) => b.date.localeCompare(a.date));
+  const m = $('#filterMonth')?.value || ''; // YYYY-MM
+  const q = ($('#filterQuery')?.value || '').trim().toLowerCase();
+  const t = $('#filterType')?.value || 'all';
+  return transactions
+    .filter(tx => {
+      const byMonth = m ? tx.date.startsWith(m) : true;
+      const byQuery = q ? (tx.desc.toLowerCase().includes(q) || tx.category.toLowerCase().includes(q)) : true;
+      const byType = t === 'all' ? true : tx.type === t;
+      return byMonth && byQuery && byType;
+    })
+    .sort((a, b) => b.date.localeCompare(a.date));
 }
 
 function renderTable() {
   const filtered = getFiltered();
-  $('#txCount').textContent = filtered.length;
+  const countEl = $('#txCount');
+  if (countEl) countEl.textContent = filtered.length;
   const body = $('#txBody');
+  if (!body) return;
   body.innerHTML = '';
   for (const tx of filtered) {
     const tr = document.createElement('tr');
@@ -205,8 +262,10 @@ function startEdit(id) {
 }
 
 function renderCategoryList() {
+  const dl = $('#categoryList');
+  if (!dl) return;
   const s = new Set(transactions.map(t => t.category).filter(Boolean));
-  $('#categoryList').innerHTML = [...s].sort().map(c => `<option value="${escapeHTML(c)}"></option>`).join('');
+  dl.innerHTML = [...s].sort().map(c => `<option value="${escapeHTML(c)}"></option>`).join('');
 }
 
 function renderKPIs() {
@@ -216,12 +275,20 @@ function renderKPIs() {
     if (t.type === 'expense') total += t.amount; else income += t.amount;
     if (t.date.startsWith(nowM) && t.type === 'expense') thisMonth += t.amount;
   }
-  $('#kpi-total').textContent = formatCurrency(total);
-  $('#kpi-income').textContent = formatCurrency(income);
-  $('#kpi-month').textContent = formatCurrency(thisMonth);
+  const totalEl = $('#kpi-total');
+  const incomeEl = $('#kpi-income');
+  const monthEl = $('#kpi-month');
+  if (totalEl) totalEl.textContent = formatCurrency(total);
+  if (incomeEl) incomeEl.textContent = formatCurrency(income);
+  if (monthEl) monthEl.textContent = formatCurrency(thisMonth);
 }
 
 function renderCharts() {
+  const catCanvas = $('#catChart');
+  const monthCanvas = $('#monthChart');
+  const netCanvas = $('#netChart');
+  if (!catCanvas || !monthCanvas || !netCanvas) return;
+
   const byCategory = {};
   const byMonthTotals = {};
   const byMonthNet = {};
@@ -230,15 +297,10 @@ function renderCharts() {
     const m = monthKey(t.date);
     const sign = t.type === 'expense' ? -1 : 1;
 
-    // Category (expenses only)
     if (t.type === 'expense') {
       byCategory[t.category] = (byCategory[t.category] || 0) + t.amount;
-    }
-    // Monthly totals (expenses)
-    if (t.type === 'expense') {
       byMonthTotals[m] = (byMonthTotals[m] || 0) + t.amount;
     }
-    // Net flow
     byMonthNet[m] = (byMonthNet[m] || 0) + sign * t.amount;
   }
 
@@ -260,7 +322,7 @@ function renderCharts() {
   Object.values(charts).forEach(c => c && c.destroy());
 
   // Category Doughnut
-  const catCtx = $('#catChart').getContext('2d');
+  const catCtx = catCanvas.getContext('2d');
   charts.cat = new Chart(catCtx, {
     type: 'doughnut',
     data: {
@@ -281,7 +343,7 @@ function renderCharts() {
   });
 
   // Monthly Totals Bar
-  const mCtx = $('#monthChart').getContext('2d');
+  const mCtx = monthCanvas.getContext('2d');
   const g1 = makeGradient(mCtx, 'rgba(14,165,233,.7)', 'rgba(14,165,233,.15)');
   charts.month = new Chart(mCtx, {
     type: 'bar',
@@ -303,7 +365,7 @@ function renderCharts() {
   });
 
   // Net Cumulative Area
-  const netCtx = $('#netChart').getContext('2d');
+  const netCtx = netCanvas.getContext('2d');
   const cumulative = [];
   let sum = 0;
   for (let i = 0; i < net.length; i++) {
@@ -331,46 +393,88 @@ function renderCharts() {
   });
 }
 
-// ====== Excel Export ======
+// ====== Excel Export (robust) ======
 function exportExcel() {
-  // Sheet 1: Transactions
-  const txRows = transactions.map(t => ({
-    Date: t.date,
-    Description: t.desc,
-    Category: t.category,
-    Type: t.type,
-    Amount: t.amount
-  }));
-  const ws1 = XLSX.utils.json_to_sheet(txRows);
-  autosize(ws1, ['Date','Description','Category','Type','Amount']);
+  try {
+    if (typeof XLSX === 'undefined') {
+      console.warn('XLSX not available — falling back to CSV.');
+      return exportCSVFallback();
+    }
 
-  // Sheet 2: Summary (Totals by Category)
-  const byCat = groupSum(transactions.filter(t => t.type === 'expense'), t => t.category, t => t.amount);
-  const summaryRows = Object.entries(byCat).map(([k, v]) => ({ Category: k, Expense: v }));
-  const totalExpense = summaryRows.reduce((a, r) => a + r.Expense, 0);
-  summaryRows.push({ Category: 'TOTAL', Expense: totalExpense });
-  const ws2 = XLSX.utils.json_to_sheet(summaryRows);
-  autosize(ws2, ['Category','Expense']);
+    // Sheet 1: Transactions
+    const txRows = transactions.map(t => ({
+      Date: t.date,
+      Description: t.desc,
+      Category: t.category,
+      Type: t.type,
+      Amount: t.amount
+    }));
+    const ws1 = XLSX.utils.json_to_sheet(txRows);
+    autosize(ws1, ['Date','Description','Category','Type','Amount']);
 
-  // Sheet 3: Pivot by Month
-  const byMonth = groupSum(transactions, t => monthKey(t.date) + '|' + t.type, t => t.amount * (t.type === 'income' ? 1 : 1)); // keep raw
-  const months = [...new Set(transactions.map(t => monthKey(t.date)))].sort();
-  const pivot = [['Month','Income','Expense','Net']];
-  for (const m of months) {
-    const inc = byMonth[`${m}|income`] || 0;
-    const exp = byMonth[`${m}|expense`] || 0;
-    pivot.push([m, inc, exp, inc - exp]);
+    // Sheet 2: Summary (Totals by Category)
+    const byCat = groupSum(transactions.filter(t => t.type === 'expense'), t => t.category, t => t.amount);
+    const summaryRows = Object.entries(byCat).map(([k, v]) => ({ Category: k, Expense: v }));
+    const totalExpense = summaryRows.reduce((a, r) => a + r.Expense, 0);
+    summaryRows.push({ Category: 'TOTAL', Expense: totalExpense });
+    const ws2 = XLSX.utils.json_to_sheet(summaryRows);
+    autosize(ws2, ['Category','Expense']);
+
+    // Sheet 3: Pivot by Month
+    const byMonth = groupSum(transactions, t => monthKey(t.date) + '|' + t.type, t => t.amount);
+    const months = [...new Set(transactions.map(t => monthKey(t.date)))].sort();
+    const pivot = [['Month','Income','Expense','Net']];
+    for (const m of months) {
+      const inc = byMonth[`${m}|income`] || 0;
+      const exp = byMonth[`${m}|expense`] || 0;
+      pivot.push([m, inc, exp, inc - exp]);
+    }
+    const ws3 = XLSX.utils.aoa_to_sheet(pivot);
+    autosize(ws3, ['Month','Income','Expense','Net']);
+
+    // Build workbook and download via Blob
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws1, 'Transactions');
+    XLSX.utils.book_append_sheet(wb, ws2, 'Summary');
+    XLSX.utils.book_append_sheet(wb, ws3, 'By Month');
+
+    const arrayBuf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    const blob = new Blob([arrayBuf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    triggerDownload(blob, 'expenses.xlsx');
+  } catch (err) {
+    console.error('Export failed:', err);
+    alert('Export failed. A CSV fallback will be downloaded instead.');
+    exportCSVFallback();
   }
-  const ws3 = XLSX.utils.aoa_to_sheet(pivot);
-  autosize(ws3, ['Month','Income','Expense','Net']);
+}
 
-  // Build workbook
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws1, 'Transactions');
-  XLSX.utils.book_append_sheet(wb, ws2, 'Summary');
-  XLSX.utils.book_append_sheet(wb, ws3, 'By Month');
+// Helper: programmatic download
+function triggerDownload(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => {
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, 0);
+}
 
-  XLSX.writeFile(wb, 'expenses.xlsx');
+// CSV fallback (Transactions only — safe & simple)
+function exportCSVFallback() {
+  const header = ['Date','Description','Category','Type','Amount'];
+  const rows = transactions.map(t => [t.date, t.desc, t.category, t.type, t.amount]);
+  const csv = [header, ...rows]
+    .map(r => r.map(cell => {
+      const s = String(cell ?? '');
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    }).join(','))
+    .join('\n');
+
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  triggerDownload(blob, 'expenses.csv');
 }
 
 // ====== Utilities ======
@@ -384,20 +488,17 @@ function groupSum(arr, keyFn, valFn) {
 function autosize(ws, headers) {
   ws['!cols'] = headers.map(h => ({ wch: Math.max(10, String(h).length + 2) }));
 }
-function escapeHTML(s) {
-  return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
-}
 function asISO(v) {
-  if (!v) return null;
+  if (!v && v !== 0) return null;
   const s = String(v).trim();
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
   // Try Excel serial date
   const n = Number(s);
-  if (!Number.isNaN(n) && n > 20000 && n < 80000) {
+  if (!Number.isNaN(n) && n > 20000 && n < 80000 && typeof XLSX !== 'undefined' && XLSX.SSF?.parse_date_code) {
     const date = XLSX.SSF.parse_date_code(n);
     if (date) return `${date.y.toString().padStart(4,'0')}-${String(date.m).padStart(2,'0')}-${String(date.d).padStart(2,'0')}`;
   }
-  // Try local parse
+  // Try generic parse
   const d = new Date(s);
   if (!isNaN(d)) {
     const tzOffset = d.getTimezoneOffset();
@@ -407,11 +508,11 @@ function asISO(v) {
   return null;
 }
 function parseCSV(text) {
-  const lines = text.split(/\r?\n/).filter(Boolean);
+  // Simple CSV (no quoted commas). For complex CSVs, a parser lib is recommended.
+  const lines = text.split(/\r?\n/).filter(l => l.length);
   if (!lines.length) return [];
   const headers = lines[0].split(',').map(h => h.trim());
   return lines.slice(1).map(line => {
-    // naive split (works for simple csv without quoted commas)
     const cols = line.split(',').map(c => c.trim());
     const obj = {};
     headers.forEach((h, i) => obj[h] = cols[i]);
@@ -427,3 +528,4 @@ function dedupe(arr) {
   }
   return out;
 }
+```
