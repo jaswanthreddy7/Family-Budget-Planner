@@ -1,0 +1,37 @@
+:root {
+  --ring: rgba(14,165,233,.35);
+}
+* { box-sizing: border-box; }
+.input, .btn-primary, .btn-secondary, .icon-btn {
+  @apply rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 outline-none;
+}
+.input:focus, .btn-primary:focus, .btn-secondary:focus, .icon-btn:focus {
+  box-shadow: 0 0 0 4px var(--ring);
+}
+.btn-primary {
+  @apply bg-sky text-white border-sky hover:brightness-110 shadow-pretty transition-colors;
+}
+.btn-secondary {
+  @apply bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100;
+}
+.icon-btn { @apply px-2 py-2; }
+.card {
+  @apply bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-5 shadow-sm;
+}
+.kpi-card {
+  @apply bg-gradient-to-br from-sky/10 to-sky/0 border border-sky/30 rounded-2xl p-5 shadow-pretty;
+}
+.kpi-label { @apply text-xs uppercase tracking-wider text-slate-500 dark:text-slate-400; }
+.kpi-value { @apply text-3xl font-extrabold mt-1; }
+.section-title { @apply font-bold text-lg; }
+.th { @apply text-left font-semibold px-3 py-2; }
+.td { @apply px-3 py-2 align-top; }
+.badge {
+  @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs;
+}
+.badge-expense { @apply bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-200; }
+.badge-income { @apply bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200; }
+.row { @apply hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors; }
+.action {
+  @apply text-sky hover:underline cursor-pointer;
+}
